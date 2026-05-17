@@ -1,6 +1,7 @@
 from url_parser import URLParser
-from nmap import run_nmap
-from gobuster import run_gobuster  
+# from nmap import run_nmap
+# from gobuster import run_gobuster  
+from who_is import run as run_whois
 import os
 
 def main():
@@ -9,9 +10,14 @@ def main():
 
     #nmap
     # run_nmap(bone.url_ip)
+    #--------------------
     #gobuster
-    results = run_gobuster(bone.url_domain)
-    print(results)
+    # results = run_gobuster(bone.url_domain)
+    #--------------------
+    #whois
+    run_whois(bone.url_domain)
+
+    # print(results)
 
 
 if __name__ == "__main__":

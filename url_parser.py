@@ -26,8 +26,7 @@ class URLParser:
     @property
     def url_domain(self):
         """Returns base URL for scanning tools"""
-        scheme = self.parsed.scheme if self.parsed.scheme else "http"
-        return f"{scheme}://{self.parsed.netloc}"
+        return self.parsed.netloc
 
     @property
     def parsed_url(self):
