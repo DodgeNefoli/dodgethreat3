@@ -2,7 +2,8 @@ from url_parser import URLParser
 # from nmap import run_nmap
 # from gobuster import run_gobuster  
 # from who_is import run as run_whois
-from ssl_scan import run as run_ssl
+# from ssl_scan import run as run_ssl
+from foot_printing import run as run_foot_printing
 import os
 
 def main():
@@ -11,18 +12,18 @@ def main():
 
     #nmap
     # run_nmap(bone.url_ip)
-    #--------------------
+
     #gobuster
     # results = run_gobuster(bone.url_domain)
-    #--------------------
+
     #whois
     # run_whois(bone.url_domain)
 
-
     # ssl  scan
-    run_ssl(bone.url_domain)
+    # run_ssl(bone.url_domain)
 
-
+     #foot_print
+    run_foot_printing(bone.url_domain)
 
     # print(results)
 
