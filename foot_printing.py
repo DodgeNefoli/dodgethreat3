@@ -15,6 +15,20 @@ requests.packages.urllib3.disable_warnings()
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 
+VERSION_PATTERNS = {
+    "WordPress": r'content=["\']WordPress ([\d.]+)',
+    "Drupal":    r'content=["\']Drupal ([\d.]+)',
+    "Joomla":    r'content=["\']Joomla! ([\d.]+)',
+    "jQuery":    r'jquery[/-]([\d.]+)(\.min)?\.js',
+    "React":     r'react[/@]([\d.]+)',
+    "Vue":       r'vue[/@]([\d.]+)',
+    "Angular":   r'angular[/@]([\d.]+)',
+    "Bootstrap": r'bootstrap[/-]([\d.]+)',
+    "PHP":       r'PHP/([\d.]+)',
+    "Nginx":     r'nginx/([\d.]+)',
+    "Apache":    r'Apache/([\d.]+)',
+    "IIS":       r'Microsoft-IIS/([\d.]+)',
+}
 
 # signature database 
 CMS_SIGS = {
@@ -61,17 +75,17 @@ def _fetch(domain: str) -> tuple:
     try:
         r = requests.get(
             f"https://{domain}", headers=HEADERS,
-            timeout=10, verify=False, allow_redirects=True
+            timeout=5, verify=False, allow_redirects=True
         )
         return dict(r.headers), r.text, dict(r.cookies)
     except Exception:
         try:
             r = requests.get(
                 f"http://{domain}", headers=HEADERS,
-                timeout=10, verify=False, allow_redirects=True
+                timeout=5, verify=False, allow_redirects=True
             )
             return dict(r.headers), r.text, dict(r.cookies)
-        except Exception as e:
+        except Exception:
             return {}, "", {}
  
  
@@ -89,11 +103,18 @@ def _probe_path(domain: str, path: str) -> bool:
     try:
         r = requests.get(
             f"https://{domain}{path}", headers=HEADERS,
-            timeout=5, verify=False, allow_redirects=False
+            timeout=3, verify=False, allow_redirects=False
         )
         return r.status_code in [200, 301, 302, 403]
     except Exception:
-        return False
+        try:
+            r = requests.get(
+                f"http://{domain}{path}", headers=HEADERS,
+                timeout=3, verify=False, allow_redirects=False
+            )
+            return r.status_code in [200, 301, 302, 403]
+        except Exception:
+            return False
  
  
 def _get_jquery_version(html: str) -> str | None:
@@ -112,10 +133,19 @@ def get_server_info(headers: dict) -> dict:
     via         = headers.get("Via", "") or ""
     haystack    = f"{server_raw} {powered} {via}"
     detected    = _match(SERVER_SIGS, haystack)
+    #Extracting version from headers
+    versions={}
+    header_str = f"{server_raw} {powered}"
+    for tech in ["Nginx", "Apache", "IIS", "PHP"]:
+        m = re.search(VERSION_PATTERNS[tech], header_str, re.I)
+        if m:
+            versions[tech] = m.group(1)
+
     return {
         "raw":       server_raw or "Hidden",
         "powered_by": powered   or None,
         "detected":  detected,
+        "verisons": versions,
     }
  
  
@@ -130,8 +160,14 @@ def get_cms(html: str, headers: dict, domain: str) -> dict:
         detected.append("WordPress")
     if "Joomla" not in detected and _probe_path(domain, "/administrator/"):
         detected.append("Joomla")
+    #Extract cms version.
+    versions = {}
+    for tech in ["WordPress", "Drupal", "Joomla"]:
+        m = re.search(VERSION_PATTERNS[tech], html, re.I)
+        if m:
+            versions[tech] = m.group(1)
  
-    return {"detected": detected}
+    return {"detected": detected, "versions": versions}
  
  
 def get_frameworks(html: str, headers: dict, cookies: dict) -> dict:
@@ -143,23 +179,43 @@ def get_frameworks(html: str, headers: dict, cookies: dict) -> dict:
  
  
 def get_js_libs(html: str) -> dict:
-    """Detect JS libraries and grab jQuery version if present."""
     detected = _match(JS_SIGS, html)
-    result   = {"detected": detected, "jquery_version": None}
-    if "jQuery" in detected:
-        result["jquery_version"] = _get_jquery_version(html)
-    return result
+    versions = {}
+
+    for tech in ["jQuery", "React", "Vue", "Angular", "Bootstrap"]:
+        m = re.search(VERSION_PATTERNS[tech], html, re.I)
+        if m:
+            versions[tech] = m.group(1)
+
+    # jQuery fallback already in old code
+    if "jQuery" in detected and "jQuery" not in versions:
+        m = re.search(r'jquery[/-](\d+\.\d+[\.\d]*)(\.min)?\.js', html, re.I)
+        if m:
+            versions["jQuery"] = m.group(1)
+
+    return {"detected": detected, "versions": versions}
  
  
 def get_all_data(domain: str) -> dict:
     """Master worker — runs all checks, returns combined dict."""
     headers, html, cookies = _fetch(domain)
+    server     = get_server_info(headers)
+    cms        = get_cms(html, headers, domain)
+    frameworks = get_frameworks(html, headers, cookies)
+    js_libs    = get_js_libs(html)
+
+    # Combine ALL versions into one flat dict for cve_lookup.py
+    all_versions = {}
+    all_versions.update(server.get("versions", {}))
+    all_versions.update(cms.get("versions", {}))
+    all_versions.update(js_libs.get("versions", {}))
     return {
-        "domain":     domain,
-        "server":     get_server_info(headers),
-        "cms":        get_cms(html, headers, domain),
-        "frameworks": get_frameworks(html, headers, cookies),
-        "js_libs":    get_js_libs(html),
+        "domain":      domain,
+        "server":      server,
+        "cms":         cms,
+        "frameworks":  frameworks,
+        "js_libs":     js_libs,
+        "all_versions": all_versions,
     }
 
 
@@ -188,15 +244,18 @@ def cli_display(domain: str) -> None:
         server_str += f"  [dim]→ {', '.join(s['detected'])}[/dim]"
     if s["powered_by"]:
         server_str += f"\n[dim]Powered by: {s['powered_by']}[/dim]"
+    if s.get("versions"):
+        ver_str = ", ".join([f"{k} {v}" for k, v in s["versions"].items()])
+        server_str += f"\n[dim]Versions: {ver_str}[/dim]"
     table.add_row("Web Server", server_str)
  
     # CMS
     cms = data["cms"]["detected"]
-    table.add_row(
-        "CMS",
-        "[bold green]" + ", ".join(cms) + "[/bold green]" if cms
-        else "[dim]Not detected[/dim]"
-    )
+    cms_str = "[bold green]" + ", ".join(cms) + "[/bold green]" if cms else "[dim]Not detected[/dim]"
+    if cms and data["cms"].get("versions"):
+        ver_str = ", ".join([f"{k} {v}" for k, v in data["cms"]["versions"].items()])
+        cms_str += f"\n[dim]Versions: {ver_str}[/dim]"
+    table.add_row("CMS", cms_str)
 
 
     #framework
@@ -211,8 +270,9 @@ def cli_display(domain: str) -> None:
     js = data["js_libs"]
     if js["detected"]:
         libs = js["detected"].copy()
-        if "jQuery" in libs and js["jquery_version"]:
-            libs[libs.index("jQuery")] = f"jQuery v{js['jquery_version']}"
+        for i, lib in enumerate(libs):
+            if lib in js["versions"]:
+                libs[i] = f"{lib} v{js['versions'][lib]}"
         js_str = "[bold green]" + ", ".join(libs) + "[/bold green]"
     else:
         js_str = "[dim]Not detected[/dim]"
