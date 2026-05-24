@@ -117,15 +117,7 @@ def _probe_path(domain: str, path: str) -> bool:
             return False
  
  
-def _get_jquery_version(html: str) -> str | None:
-    """Extract jQuery version from HTML source."""
-    match = re.search(r'jquery[/-](\d+\.\d+[\.\d]*)(\.min)?\.js', html, re.I)
-    if match:
-        return match.group(1)
-    match = re.search(r'jQuery v(\d+\.\d+[\.\d]*)', html)
-    return match.group(1) if match else None
- 
- 
+
 def get_server_info(headers: dict) -> dict:
     """Detect web server from response headers."""
     server_raw = headers.get("Server", "") or headers.get("server", "")
@@ -145,7 +137,7 @@ def get_server_info(headers: dict) -> dict:
         "raw":       server_raw or "Hidden",
         "powered_by": powered   or None,
         "detected":  detected,
-        "verisons": versions,
+        "versions": versions,
     }
  
  
@@ -221,7 +213,8 @@ def get_all_data(domain: str) -> dict:
 
 
 # cli____________________________ 
-def cli_display(domain: str) -> None:
+def cli_display(domain: str) -> dict:
+
     console.print(f"\n[bold cyan][ DODGETHREAT3 ][/bold cyan] [white]Footprinting:[/white] [bold yellow]{domain}[/bold yellow]\n")
  
     data = get_all_data(domain)
@@ -303,13 +296,13 @@ def cli_display(domain: str) -> None:
     console.print()
     console.print("[bold cyan][ DODGETHREAT3 ][/bold cyan] [bold green]Footprinting Complete.[/bold green]\n")
 
-
+    return data
 
 #config_________________
  
-def run(domain: str):
+def run(domain: str) -> dict:
     if MODE == "cli":
-        cli_display(domain)
+         return cli_display(domain)
     elif MODE == "web":
         pass  # web_based(domain) — uncomment Phase 2
     else:
@@ -318,10 +311,12 @@ def run(domain: str):
 
 
 if __name__ == "__main__":
+    import version_engine
     from url_parser import URLParser
-    target = sys.argv[1] if len(sys.argv) > 1 else input("Enter target: ")
-    domain = URLParser(target).url_domain
+    target    = sys.argv[1] if len(sys.argv) > 1 else input("Enter target: ")
+    domain    = URLParser(target).url_domain
     if not domain:
         console.print("[bold red]Could not parse domain.[/bold red]")
         sys.exit(1)
-    run(domain)
+    foot_data = run(domain)           # Layer 1 runs + returns data
+    version_engine.run(domain, foot_data)  # Layer 2 receives it
